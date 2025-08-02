@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "splFJYjixyuCEp6pgsb3ovd7lE+x1fYhfX8Dj1yi1AY=",
+  "Source": "KernelMemoryAPI",
+  "BasePath": "_content/KernelMemoryAPI",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}
