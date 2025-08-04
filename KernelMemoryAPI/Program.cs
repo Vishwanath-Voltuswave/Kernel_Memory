@@ -265,6 +265,7 @@ using Microsoft.KernelMemory.AI.OpenAI;
 using Microsoft.KernelMemory.MongoDbAtlas;
 using DotNetEnv;
 
+
 // Only load .env in development
 if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") != "Production")
 {
@@ -272,6 +273,8 @@ if (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") != "Production"
 }
 
 var builder = WebApplication.CreateBuilder(args);
+
+Env.Load("KernelMemoryAPI/.env");
 
 // 1. Read environment variables
 var openAiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")

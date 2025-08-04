@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("KernelMemoryAPI")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c823bc9c1268e0afd8b8a3260836ca871320dc3c")]
 [assembly: System.Reflection.AssemblyProductAttribute("KernelMemoryAPI")]
 [assembly: System.Reflection.AssemblyTitleAttribute("KernelMemoryAPI")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

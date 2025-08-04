@@ -294,6 +294,379 @@
 
 
 
+// =========================================working 4 aug =======================================
+
+
+
+
+// using Microsoft.AspNetCore.Mvc;
+// using Microsoft.AspNetCore.Http;
+// using Microsoft.KernelMemory;
+// using System.ComponentModel.DataAnnotations;
+// using System.IO;
+// using System.Linq;
+// using System.Threading.Tasks;
+
+// namespace KernelMemoryAPI.Controllers
+// {
+//     [ApiController]
+//     [Route("api/[controller]")]
+//     public class MemoryController : ControllerBase
+//     {
+//         private readonly IKernelMemory _memory;
+//         private readonly ILogger<MemoryController> _logger;
+
+//         public MemoryController(IKernelMemory memory, ILogger<MemoryController> logger)
+//         {
+//             _memory = memory;
+//             _logger = logger;
+//         }
+
+//         public class ImportDocumentRequest
+//         {
+//             [Required]
+//             public string DocumentId { get; set; } = string.Empty;
+
+//             [Required]
+//             public IFormFile? File { get; set; }
+//         }
+
+//         [HttpPost("import")]
+//         public async Task<IActionResult> ImportDocument([FromForm] ImportDocumentRequest request)
+//         {
+//             if (request.File == null || request.File.Length == 0)
+//                 return BadRequest(new { message = "No file uploaded." });
+
+//             // Save the uploaded file to a temporary path
+//             var tempFile = Path.Combine(Path.GetTempPath(), request.File.FileName);
+//             await using (var stream = System.IO.File.Create(tempFile))
+//             {
+//                 await request.File.CopyToAsync(stream);
+//             }
+
+//             // Check if the document is already indexed
+//             if (await _memory.IsDocumentReadyAsync(request.DocumentId))
+//             {
+//                 _logger.LogInformation("Document {DocId} already exists.", request.DocumentId);
+//                 return Ok(new { message = $"Document '{request.DocumentId}' already exists." });
+//             }
+
+//             // Import the document from the temporary file into Kernel Memory
+//             _logger.LogInformation("Importing document {DocId} from temporary file {Path}", request.DocumentId, tempFile);
+//             await _memory.ImportDocumentAsync(tempFile, documentId: request.DocumentId);
+
+//             // Clean up the temporary file
+//             System.IO.File.Delete(tempFile);
+
+//             return Ok(new { message = $"Document '{request.DocumentId}' imported successfully." });
+//         }
+
+//         [HttpGet("ask")]
+//         public async Task<IActionResult> Ask(
+//             [FromQuery] string? documentId,
+//             [FromQuery, Required] string question)
+//         {
+//             _logger.LogInformation("Received question: '{Question}' for documentId: '{DocId}'",
+//                 question, documentId ?? "ALL");
+
+//             try
+//             {
+//                 MemoryAnswer answer;
+
+//                 if (!string.IsNullOrEmpty(documentId))
+//                 {
+//                     answer = await _memory.AskAsync(
+//                         question,
+//                         filter: MemoryFilters.ByDocument(documentId)
+//                     );
+//                     _logger.LogInformation("Document-specific search completed for {DocId}", documentId);
+//                 }
+//                 else
+//                 {
+//                     answer = await _memory.AskAsync(question);
+//                     _logger.LogInformation("Global search completed across all documents");
+//                 }
+
+//                 return Ok(answer);
+//             }
+//             catch (Exception ex)
+//             {
+//                 _logger.LogError(ex, "Error processing ask request");
+//                 return StatusCode(500, new { message = "An error occurred while processing the question.", error = ex.Message });
+//             }
+//         }
+
+//         [HttpGet("inspect")]
+//         public async Task<IActionResult> Inspect([FromQuery, Required] string documentId)
+//         {
+//             var results = await _memory.SearchAsync(
+//                 query: "*",
+//                 filter: MemoryFilters.ByDocument(documentId)
+//             );
+
+//             if (!results.Results.Any())
+//                 return NotFound(new { message = "No data found for this document." });
+
+//             var chunks = results.Results.Select(r => r.Partitions.First().Text);
+//             return Ok(new { documentId, chunkCount = chunks.Count(), chunks });
+//         }
+
+//         // NEW ENDPOINTS FOR DOCUMENT MANAGEMENT
+
+//         /// <summary>
+//         /// Get all available documents in the memory store
+//         /// </summary>
+//         [HttpGet("documents")]
+//         public async Task<IActionResult> GetAllDocuments()
+//         {
+//             try
+//             {
+//                 _logger.LogInformation("Retrieving all documents from memory store");
+
+//                 // Search for all documents with a wildcard query
+//                 var results = await _memory.SearchAsync(
+//                     query: "*",
+//                     limit: 1000 // Adjust based on your needs
+//                 );
+
+//                 if (!results.Results.Any())
+//                 {
+//                     return Ok(new
+//                     {
+//                         message = "No documents found in the memory store.",
+//                         documents = new List<object>(),
+//                         totalCount = 0
+//                     });
+//                 }
+
+//                 // Group results by document ID and get document info
+//                 var documents = results.Results
+//                     .SelectMany(r => r.Partitions)
+//                     .GroupBy(p => p.Tags.ContainsKey("__document_id") ? p.Tags["__document_id"].FirstOrDefault() : "unknown")
+//                     .Select(g => new
+//                     {
+//                         DocumentId = g.Key,
+//                         ChunkCount = g.Count(),
+//                         TotalCharacters = g.Sum(p => p.Text.Length),
+//                         FirstChunkPreview = g.First().Text.Length > 100
+//                             ? g.First().Text.Substring(0, 100) + "..."
+//                             : g.First().Text,
+//                         Tags = g.First().Tags.Where(kvp => !kvp.Key.StartsWith("__")).ToDictionary(kvp => kvp.Key, kvp => kvp.Value)
+//                     })
+//                     .OrderBy(d => d.DocumentId)
+//                     .ToList();
+
+//                 _logger.LogInformation("Found {DocumentCount} documents in memory store", documents.Count);
+
+//                 return Ok(new
+//                 {
+//                     documents,
+//                     totalCount = documents.Count,
+//                     message = $"Found {documents.Count} documents in the memory store."
+//                 });
+//             }
+//             catch (Exception ex)
+//             {
+//                 _logger.LogError(ex, "Error retrieving documents from memory store");
+//                 return StatusCode(500, new { message = "An error occurred while retrieving documents.", error = ex.Message });
+//             }
+//         }
+
+//         /// <summary>
+//         /// Get detailed information about a specific document
+//         /// </summary>
+//         [HttpGet("documents/{documentId}")]
+//         public async Task<IActionResult> GetDocumentDetails(string documentId)
+//         {
+//             try
+//             {
+//                 _logger.LogInformation("Retrieving details for document: {DocId}", documentId);
+
+//                 // Check if document exists and is ready
+//                 var isReady = await _memory.IsDocumentReadyAsync(documentId);
+//                 if (!isReady)
+//                 {
+//                     return NotFound(new { message = $"Document '{documentId}' not found or not ready." });
+//                 }
+
+//                 // Get all chunks for this document
+//                 var results = await _memory.SearchAsync(
+//                     query: "*",
+//                     filter: MemoryFilters.ByDocument(documentId),
+//                     limit: 1000
+//                 );
+
+//                 if (!results.Results.Any())
+//                 {
+//                     return NotFound(new { message = $"No data found for document '{documentId}'." });
+//                 }
+
+//                 var allPartitions = results.Results.SelectMany(r => r.Partitions).ToList();
+
+//                 var documentDetails = new
+//                 {
+//                     DocumentId = documentId,
+//                     IsReady = isReady,
+//                     ChunkCount = allPartitions.Count,
+//                     TotalCharacters = allPartitions.Sum(p => p.Text.Length),
+//                     AverageChunkSize = allPartitions.Any() ? (int)allPartitions.Average(p => p.Text.Length) : 0,
+//                     Tags = allPartitions.FirstOrDefault()?.Tags?.Where(kvp => !kvp.Key.StartsWith("__")).ToDictionary(kvp => kvp.Key, kvp => kvp.Value) ?? new Dictionary<string, List<string?>>(),
+//                     Chunks = allPartitions.Select((p, index) => new
+//                     {
+//                         Index = index + 1,
+//                         CharacterCount = p.Text.Length,
+//                         Preview = p.Text.Length > 200 ? p.Text.Substring(0, 200) + "..." : p.Text,
+//                         FullText = p.Text // Include full text if needed
+//                     }).ToList()
+//                 };
+
+//                 _logger.LogInformation("Retrieved details for document {DocId}: {ChunkCount} chunks, {TotalChars} characters",
+//                     documentId, documentDetails.ChunkCount, documentDetails.TotalCharacters);
+
+//                 return Ok(documentDetails);
+//             }
+//             catch (Exception ex)
+//             {
+//                 _logger.LogError(ex, "Error retrieving details for document {DocId}", documentId);
+//                 return StatusCode(500, new { message = "An error occurred while retrieving document details.", error = ex.Message });
+//             }
+//         }
+
+//         /// <summary>
+//         /// Check if a specific document exists and is ready
+//         /// </summary>
+//         [HttpGet("documents/{documentId}/status")]
+//         public async Task<IActionResult> GetDocumentStatus(string documentId)
+//         {
+//             try
+//             {
+//                 _logger.LogInformation("Checking status for document: {DocId}", documentId);
+
+//                 var isReady = await _memory.IsDocumentReadyAsync(documentId);
+
+//                 return Ok(new
+//                 {
+//                     DocumentId = documentId,
+//                     IsReady = isReady,
+//                     Status = isReady ? "Ready" : "Not Found or Processing",
+//                     Message = isReady
+//                         ? $"Document '{documentId}' is ready for querying."
+//                         : $"Document '{documentId}' not found or still processing."
+//                 });
+//             }
+//             catch (Exception ex)
+//             {
+//                 _logger.LogError(ex, "Error checking status for document {DocId}", documentId);
+//                 return StatusCode(500, new { message = "An error occurred while checking document status.", error = ex.Message });
+//             }
+//         }
+
+//         /// <summary>
+//         /// Get a list of just document IDs (lightweight endpoint)
+//         /// </summary>
+//         [HttpGet("documents/ids")]
+//         public async Task<IActionResult> GetDocumentIds()
+//         {
+//             try
+//             {
+//                 _logger.LogInformation("Retrieving all document IDs");
+
+//                 var results = await _memory.SearchAsync(
+//                     query: "*",
+//                     limit: 1000
+//                 );
+
+//                 if (!results.Results.Any())
+//                 {
+//                     return Ok(new
+//                     {
+//                         documentIds = new List<string>(),
+//                         totalCount = 0,
+//                         message = "No documents found."
+//                     });
+//                 }
+
+//                 var documentIds = results.Results
+//                     .SelectMany(r => r.Partitions)
+//                     .Where(p => p.Tags.ContainsKey("__document_id"))
+//                     .Select(p => p.Tags["__document_id"].FirstOrDefault())
+//                     .Where(id => !string.IsNullOrEmpty(id))
+//                     .Distinct()
+//                     .OrderBy(id => id)
+//                     .ToList();
+
+//                 _logger.LogInformation("Found {DocumentCount} unique document IDs", documentIds.Count);
+
+//                 return Ok(new
+//                 {
+//                     documentIds,
+//                     totalCount = documentIds.Count,
+//                     message = $"Found {documentIds.Count} document(s)."
+//                 });
+//             }
+//             catch (Exception ex)
+//             {
+//                 _logger.LogError(ex, "Error retrieving document IDs");
+//                 return StatusCode(500, new { message = "An error occurred while retrieving document IDs.", error = ex.Message });
+//             }
+//         }
+
+//         /// <summary>
+//         /// Delete a specific document from memory store
+//         /// </summary>
+//         [HttpDelete("documents/{documentId}")]
+//         public async Task<IActionResult> DeleteDocument(string documentId)
+//         {
+//             try
+//             {
+//                 _logger.LogInformation("Attempting to delete document: {DocId}", documentId);
+
+//                 // Check if document exists first
+//                 var isReady = await _memory.IsDocumentReadyAsync(documentId);
+//                 if (!isReady)
+//                 {
+//                     return NotFound(new { message = $"Document '{documentId}' not found." });
+//                 }
+
+//                 // Delete the document
+//                 await _memory.DeleteDocumentAsync(documentId);
+
+//                 _logger.LogInformation("Successfully deleted document: {DocId}", documentId);
+
+//                 return Ok(new
+//                 {
+//                     message = $"Document '{documentId}' deleted successfully.",
+//                     documentId = documentId
+//                 });
+//             }
+//             catch (Exception ex)
+//             {
+//                 _logger.LogError(ex, "Error deleting document {DocId}", documentId);
+//                 return StatusCode(500, new { message = "An error occurred while deleting the document.", error = ex.Message });
+//             }
+//         }
+//     }
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -306,6 +679,7 @@ using System.ComponentModel.DataAnnotations;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
 
 namespace KernelMemoryAPI.Controllers
 {
@@ -315,6 +689,9 @@ namespace KernelMemoryAPI.Controllers
     {
         private readonly IKernelMemory _memory;
         private readonly ILogger<MemoryController> _logger;
+
+        // Store file hash -> document ID mapping to prevent duplicate file content
+        private static readonly Dictionary<string, string> FileHashStore = new();
 
         public MemoryController(IKernelMemory memory, ILogger<MemoryController> logger)
         {
@@ -331,11 +708,34 @@ namespace KernelMemoryAPI.Controllers
             public IFormFile? File { get; set; }
         }
 
+        private async Task<string> CalculateFileHashAsync(IFormFile file)
+        {
+            using var stream = file.OpenReadStream();
+            using var sha256 = System.Security.Cryptography.SHA256.Create();
+            var hashBytes = await Task.Run(() => sha256.ComputeHash(stream));
+            return Convert.ToBase64String(hashBytes);
+        }
+
         [HttpPost("import")]
         public async Task<IActionResult> ImportDocument([FromForm] ImportDocumentRequest request)
         {
             if (request.File == null || request.File.Length == 0)
                 return BadRequest(new { message = "No file uploaded." });
+
+            // Calculate file hash to detect duplicates
+            var fileHash = await CalculateFileHashAsync(request.File);
+            _logger.LogInformation("File hash: {Hash} for document {DocId}", fileHash, request.DocumentId);
+
+            // Check for duplicate file content
+            if (FileHashStore.TryGetValue(fileHash, out var existingDocId))
+            {
+                return BadRequest(new
+                {
+                    message = $"This file content already exists with document ID: '{existingDocId}'. Please use a different file or the existing document ID.",
+                    existingDocumentId = existingDocId,
+                    fileHash = fileHash
+                });
+            }
 
             // Save the uploaded file to a temporary path
             var tempFile = Path.Combine(Path.GetTempPath(), request.File.FileName);
@@ -344,21 +744,44 @@ namespace KernelMemoryAPI.Controllers
                 await request.File.CopyToAsync(stream);
             }
 
-            // Check if the document is already indexed
+            // Check if the document ID already exists
             if (await _memory.IsDocumentReadyAsync(request.DocumentId))
             {
                 _logger.LogInformation("Document {DocId} already exists.", request.DocumentId);
+                System.IO.File.Delete(tempFile); // Clean up
                 return Ok(new { message = $"Document '{request.DocumentId}' already exists." });
             }
 
-            // Import the document from the temporary file into Kernel Memory
-            _logger.LogInformation("Importing document {DocId} from temporary file {Path}", request.DocumentId, tempFile);
-            await _memory.ImportDocumentAsync(tempFile, documentId: request.DocumentId);
+            try
+            {
+                // Import the document from the temporary file into Kernel Memory
+                _logger.LogInformation("Importing document {DocId} from temporary file {Path}", request.DocumentId, tempFile);
+                await _memory.ImportDocumentAsync(tempFile, documentId: request.DocumentId);
 
-            // Clean up the temporary file
-            System.IO.File.Delete(tempFile);
+                // Store the file hash to prevent future duplicates
+                FileHashStore[fileHash] = request.DocumentId;
 
-            return Ok(new { message = $"Document '{request.DocumentId}' imported successfully." });
+                _logger.LogInformation("Successfully imported document {DocId} with hash {Hash}", request.DocumentId, fileHash);
+
+                return Ok(new
+                {
+                    message = $"Document '{request.DocumentId}' imported successfully.",
+                    fileHash = fileHash
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error importing document {DocId}", request.DocumentId);
+                return StatusCode(500, new { message = "Error importing document", error = ex.Message });
+            }
+            finally
+            {
+                // Clean up the temporary file
+                if (System.IO.File.Exists(tempFile))
+                {
+                    System.IO.File.Delete(tempFile);
+                }
+            }
         }
 
         [HttpGet("ask")]
@@ -451,7 +874,7 @@ namespace KernelMemoryAPI.Controllers
                         FirstChunkPreview = g.First().Text.Length > 100
                             ? g.First().Text.Substring(0, 100) + "..."
                             : g.First().Text,
-                        Tags = g.First().Tags.Where(kvp => !kvp.Key.StartsWith("__")).ToDictionary(kvp => kvp.Key, kvp => kvp.Value)
+                        Tags = new Dictionary<string, List<string>>() // Simplified for now
                     })
                     .OrderBy(d => d.DocumentId)
                     .ToList();
@@ -510,7 +933,7 @@ namespace KernelMemoryAPI.Controllers
                     ChunkCount = allPartitions.Count,
                     TotalCharacters = allPartitions.Sum(p => p.Text.Length),
                     AverageChunkSize = allPartitions.Any() ? (int)allPartitions.Average(p => p.Text.Length) : 0,
-                    Tags = allPartitions.FirstOrDefault()?.Tags?.Where(kvp => !kvp.Key.StartsWith("__")).ToDictionary(kvp => kvp.Key, kvp => kvp.Value) ?? new Dictionary<string, List<string?>>(),
+                    Tags = new Dictionary<string, List<string>>(), // Simplified for now
                     Chunks = allPartitions.Select((p, index) => new
                     {
                         Index = index + 1,
@@ -631,6 +1054,14 @@ namespace KernelMemoryAPI.Controllers
                 // Delete the document
                 await _memory.DeleteDocumentAsync(documentId);
 
+                // Remove from hash store if exists
+                var hashToRemove = FileHashStore.FirstOrDefault(kvp => kvp.Value == documentId).Key;
+                if (!string.IsNullOrEmpty(hashToRemove))
+                {
+                    FileHashStore.Remove(hashToRemove);
+                    _logger.LogInformation("Removed hash mapping for deleted document {DocId}", documentId);
+                }
+
                 _logger.LogInformation("Successfully deleted document: {DocId}", documentId);
 
                 return Ok(new
@@ -644,6 +1075,37 @@ namespace KernelMemoryAPI.Controllers
                 _logger.LogError(ex, "Error deleting document {DocId}", documentId);
                 return StatusCode(500, new { message = "An error occurred while deleting the document.", error = ex.Message });
             }
+        }
+
+        // OPTIONAL: Debug endpoints for file hash management
+
+        /// <summary>
+        /// Get current file hash mappings (for debugging)
+        /// </summary>
+        [HttpGet("file-hashes")]
+        public IActionResult GetFileHashes()
+        {
+            return Ok(new
+            {
+                fileHashes = FileHashStore.ToDictionary(kvp => kvp.Value, kvp => kvp.Key),
+                totalMappings = FileHashStore.Count,
+                message = "Current file hash mappings"
+            });
+        }
+
+        /// <summary>
+        /// Clear file hash store (for testing)
+        /// </summary>
+        [HttpDelete("file-hashes")]
+        public IActionResult ClearFileHashes()
+        {
+            var count = FileHashStore.Count;
+            FileHashStore.Clear();
+            return Ok(new
+            {
+                message = $"File hash store cleared. Removed {count} mappings.",
+                clearedMappings = count
+            });
         }
     }
 }
